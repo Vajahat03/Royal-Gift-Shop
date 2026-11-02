@@ -1,0 +1,60 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background-color: #FFF9F2;
+    color: #29252F;
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+
+  h1, h2, h3, .font-display {
+    font-family: 'Playfair Display', Georgia, serif;
+  }
+}
+
+/* Custom Sleek Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #FFF9F2;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #C9B8E8;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #8873B5;
+}
+
+/* Parisian Ribbon & Champagne Gold Theme Utilities */
+.shadow-parisian {
+  box-shadow: 0 12px 32px -10px rgba(94, 27, 46, 0.08);
+}
+.shadow-parisian-hover {
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.shadow-parisian-hover:hover {
+  box-shadow: 0 20px 42px -12px rgba(158, 42, 71, 0.16);
+  transform: translateY(-2px);
+}
+.bg-parisian-banner {
+  background: linear-gradient(135deg, #5E1B2E 0%, #3B101D 55%, #240911 100%);
+}
+.bg-parisian-radial {
+  background: radial-gradient(circle at 80% 20%, rgba(212, 155, 75, 0.18) 0%, transparent 60%);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
