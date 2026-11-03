@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.app.core.config import settings
 from backend.app.api.health import router as health_router
 from backend.app.api.inventory import router as inventory_router
+from backend.app.api.agent import router as agent_router
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -24,6 +25,7 @@ app.add_middleware(
 # Include routes
 app.include_router(health_router, prefix=settings.API_PREFIX)
 app.include_router(inventory_router, prefix=settings.API_PREFIX)
+app.include_router(agent_router, prefix=settings.API_PREFIX)
 
 @app.get("/")
 def root():
