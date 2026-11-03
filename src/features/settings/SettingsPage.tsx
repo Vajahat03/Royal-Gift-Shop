@@ -8,10 +8,15 @@ import {
   CheckCircle2, 
   Info,
   ShieldCheck,
-  Zap
+  Zap,
+  Cloud,
+  CloudUpload,
+  CloudDownload,
+  Activity
 } from 'lucide-react';
 import { useGiftShopStore } from '../../hooks/useStore';
-import { isSupabaseConfigured } from '../../services/supabase';
+import { isSupabaseConfigured, testSupabaseConnection } from '../../services/supabase';
+import { store } from '../../services/store';
 
 interface SettingsPageProps {
   onRunDemoScenario: () => void;
@@ -27,11 +32,40 @@ export function SettingsPage({ onRunDemoScenario }: SettingsPageProps) {
   const [email, setEmail] = useState(settings.email);
   const [isSaved, setIsSaved] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  const [isTestingSupabase, setIsTestingSupabase] = useState(false);
+  const [supabaseTestFeedback, setSupabaseTestFeedback] = useState<{ success: boolean; message: string } | null>(null);
 
   const handleSaveSettings = (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaved(true);
     setTimeout(() => setIsSaved(false), 2500);
+  };
+
+  const handleTestConnection = async () => {
+    setIsTestingSupabase(true);
+    setSupabaseTestFeedback(null);
+    try {
+      const res = await testSupabaseConnection();
+      setSupabaseTestFeedback(res);
+    } catch (e: any) {
+      setSupabaseTestFeedback({ success: false, message: e?.message || 'Connection test failed.' });
+    } finally {
+      setIsTestingSupabase(false);
+    }
+  };
+
+  const handleSyncFromRemote = async () => {
+    setStatusMsg('Fetching latest data from Supabase...');
+    const res = await store.syncWithSupabase();
+    setStatusMsg(res.message);
+    setTimeout(() => setStatusMsg(null), 5000);
+  };
+
+  const handlePushToRemote = async () => {
+    setStatusMsg('Pushing local inventory & settings to Supabase...');
+    const res = await store.pushToSupabase();
+    setStatusMsg(res.message);
+    setTimeout(() => setStatusMsg(null), 5000);
   };
 
   const handleResetClean = () => {
@@ -165,36 +199,88 @@ export function SettingsPage({ onRunDemoScenario }: SettingsPageProps) {
       </div>
 
       {/* Supabase Integration Details */}
-      <div className="bg-white p-6 sm:p-8 rounded-3xl border border-lavender-200/80 shadow-soft space-y-4">
+      <div className="bg-white p-6 sm:p-8 rounded-3xl border border-lavender-200/80 shadow-soft space-y-5">
         <div className="flex items-center justify-between border-b border-lavender-100 pb-4">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-2xl bg-emerald-50 flex items-center justify-center text-emerald-600">
               <Database className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-charcoal-900">Database & Persistence</h2>
-              <p className="text-xs text-charcoal-800/70">Single-user offline persistence and Supabase integration</p>
+              <h2 className="text-base font-bold text-charcoal-900">Database & Live Supabase Cloud</h2>
+              <p className="text-xs text-charcoal-800/70">Single-user offline persistence and real-time Supabase cloud sync</p>
             </div>
           </div>
 
-          <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+          <span className={`px-3 py-1 rounded-full text-xs font-bold flex items-center space-x-1.5 ${
             isSupabaseConfigured 
               ? 'bg-emerald-100 text-emerald-800' 
               : 'bg-lavender-100 text-lavender-800'
           }`}>
-            {isSupabaseConfigured ? 'Supabase Connected' : 'Local Persistent Storage Mode'}
+            <span className={`w-2 h-2 rounded-full ${isSupabaseConfigured ? 'bg-emerald-500 animate-pulse' : 'bg-lavender-400'}`}></span>
+            <span>{isSupabaseConfigured ? 'Supabase Live Connected' : 'Local Storage Mode'}</span>
           </span>
         </div>
 
         <div className="text-xs text-charcoal-800/80 space-y-2 leading-relaxed">
           <p>
-            This application is tailored for single-user boutique management with zero authentication barrier. 
-            All changes, stock balances, customers, recipes, orders, and ledger records are automatically persisted in your local browser storage.
+            Your boutique system supports automatic dual-tier persistence: zero-latency local caching plus cloud backup with PostgreSQL on Supabase.
           </p>
-          <div className="p-3 bg-cream-50 rounded-2xl border border-lavender-100 space-y-1 font-mono text-[11px]">
+          <div className="p-3 bg-cream-50 rounded-2xl border border-lavender-100 space-y-1.5 font-mono text-[11px]">
+            <p><strong>Project URL:</strong> <span className="text-lavender-700">https://omgbhmnmpvilaahujfwr.supabase.co</span></p>
             <p><strong>SQL Migration:</strong> <span className="text-lavender-700">supabase/migrations/20261031_init.sql</span></p>
-            <p><strong>Environment Config:</strong> Set <span className="text-charcoal-900">VITE_SUPABASE_URL</span> and <span className="text-charcoal-900">VITE_SUPABASE_ANON_KEY</span> in <span className="text-charcoal-900">.env</span> to sync with live Supabase.</p>
+            <p><strong>Environment Config:</strong> Connected via <span className="text-charcoal-900">.env</span> (Anon Publishable Key Active).</p>
           </div>
+        </div>
+
+        {/* Action Controls for Supabase */}
+        <div className="p-4 bg-lavender-50/50 rounded-2xl border border-lavender-100/80 space-y-3">
+          <div className="text-xs font-bold text-charcoal-800 flex items-center justify-between">
+            <span>Supabase Cloud Actions:</span>
+            <span className="text-[11px] font-normal text-charcoal-600">Single-click test & data synchronization</span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              type="button"
+              onClick={handleTestConnection}
+              disabled={isTestingSupabase}
+              className="flex items-center space-x-1.5 text-xs font-bold px-3.5 py-2 rounded-xl bg-charcoal-900 text-white hover:bg-lavender-800 hover:scale-105 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+            >
+              <Activity className="w-3.5 h-3.5" />
+              <span>{isTestingSupabase ? 'Verifying...' : 'Test Connection'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleSyncFromRemote}
+              className="flex items-center space-x-1.5 text-xs font-bold px-3.5 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 hover:scale-105 active:scale-95 transition-all cursor-pointer shadow-sm"
+            >
+              <CloudDownload className="w-3.5 h-3.5" />
+              <span>Pull from Supabase</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handlePushToRemote}
+              className="flex items-center space-x-1.5 text-xs font-bold px-3.5 py-2 rounded-xl bg-lavender-700 text-white hover:bg-lavender-800 hover:scale-105 active:scale-95 transition-all cursor-pointer shadow-sm"
+            >
+              <CloudUpload className="w-3.5 h-3.5" />
+              <span>Push Local to Supabase</span>
+            </button>
+          </div>
+
+          {supabaseTestFeedback && (
+            <div className={`p-3 rounded-xl text-xs font-medium border ${
+              supabaseTestFeedback.success 
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-900' 
+                : 'bg-amber-50 border-amber-200 text-amber-900'
+            }`}>
+              <div className="flex items-center space-x-2">
+                <span className={`w-2 h-2 rounded-full ${supabaseTestFeedback.success ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
+                <span>{supabaseTestFeedback.message}</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {statusMsg && (

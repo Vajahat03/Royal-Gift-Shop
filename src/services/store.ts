@@ -9,6 +9,17 @@ import {
   ShopSettings,
   OrderStatus
 } from '../types';
+import {
+  isSupabaseConfigured,
+  fetchAllFromSupabase,
+  syncMaterialToSupabase,
+  deleteMaterialFromSupabase,
+  syncCustomerToSupabase,
+  deleteCustomerFromSupabase,
+  syncRecipeToSupabase,
+  deleteRecipeFromSupabase,
+  pushFullStateToSupabase
+} from './supabase';
 
 const STORAGE_KEY = 'boutique_gift_shop_data_v9_clean_zero_stock';
 
@@ -413,9 +424,98 @@ interface StoreState {
 class GiftShopStore {
   private state: StoreState;
   private listeners: Set<() => void> = new Set();
+  private isSupabaseSyncing: boolean = false;
 
   constructor() {
     this.state = this.loadFromStorage();
+    this.initSupabaseSync();
+  }
+
+  private async initSupabaseSync(): Promise<void> {
+    if (!isSupabaseConfigured) return;
+
+    try {
+      this.isSupabaseSyncing = true;
+      const remoteData = await fetchAllFromSupabase();
+      if (remoteData && remoteData.materials.length > 0) {
+        this.state = {
+          ...this.state,
+          materials: remoteData.materials,
+          balances: remoteData.balances.length > 0 ? remoteData.balances : this.state.balances,
+          customers: remoteData.customers,
+          recipes: remoteData.recipes,
+          orders: remoteData.orders,
+          movements: remoteData.movements.length > 0 ? remoteData.movements : this.state.movements,
+          settings: remoteData.settings || this.state.settings
+        };
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+        } catch (e) {
+          console.warn('Could not cache Supabase state to localStorage', e);
+        }
+        this.notify();
+      }
+    } catch (e) {
+      console.warn('Initial Supabase sync skipped:', e);
+    } finally {
+      this.isSupabaseSyncing = false;
+    }
+  }
+
+  public async syncWithSupabase(): Promise<{ success: boolean; message: string; count?: number }> {
+    if (!isSupabaseConfigured) {
+      return { success: false, message: 'Supabase credentials are not configured.' };
+    }
+
+    try {
+      const remoteData = await fetchAllFromSupabase();
+      if (!remoteData) {
+        return { success: false, message: 'Could not fetch data from Supabase. Ensure migration SQL has been executed.' };
+      }
+
+      if (remoteData.materials.length === 0 && this.state.materials.length > 0) {
+        // Supabase is empty, push local state to Supabase
+        const pushResult = await pushFullStateToSupabase(this.state);
+        return {
+          success: pushResult.success,
+          message: pushResult.success 
+            ? `Supabase was empty. Successfully synced and pushed ${pushResult.count} local items to Supabase!` 
+            : `Failed to push local records to Supabase: ${pushResult.error}`
+        };
+      }
+
+      this.state = {
+        ...this.state,
+        materials: remoteData.materials,
+        balances: remoteData.balances.length > 0 ? remoteData.balances : this.state.balances,
+        customers: remoteData.customers,
+        recipes: remoteData.recipes,
+        orders: remoteData.orders,
+        movements: remoteData.movements.length > 0 ? remoteData.movements : this.state.movements,
+        settings: remoteData.settings || this.state.settings
+      };
+      this.save();
+      return { 
+        success: true, 
+        message: `Successfully synchronized ${remoteData.materials.length} products and data from Supabase!`,
+        count: remoteData.materials.length
+      };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Failed to sync with Supabase' };
+    }
+  }
+
+  public async pushToSupabase(): Promise<{ success: boolean; message: string }> {
+    if (!isSupabaseConfigured) {
+      return { success: false, message: 'Supabase credentials are not configured.' };
+    }
+
+    const res = await pushFullStateToSupabase(this.state);
+    if (res.success) {
+      return { success: true, message: `Successfully pushed ${res.count} items into Supabase live database!` };
+    } else {
+      return { success: false, message: res.error || 'Failed to push to Supabase' };
+    }
   }
 
   private loadFromStorage(): StoreState {
@@ -678,6 +778,11 @@ class GiftShopStore {
     }
 
     this.save();
+
+    if (isSupabaseConfigured) {
+      syncMaterialToSupabase(newMat, newBal).catch(e => console.warn('Supabase sync error:', e));
+    }
+
     return newMat;
   }
 
@@ -690,6 +795,11 @@ class GiftShopStore {
         updated_at: new Date().toISOString()
       };
       this.save();
+
+      if (isSupabaseConfigured) {
+        const bal = this.state.balances.find(b => b.material_id === id);
+        syncMaterialToSupabase(this.state.materials[idx], bal).catch(e => console.warn('Supabase sync error:', e));
+      }
     }
   }
 
@@ -700,6 +810,10 @@ class GiftShopStore {
       r.items = r.items.filter(it => it.material_id !== id);
     });
     this.save();
+
+    if (isSupabaseConfigured) {
+      deleteMaterialFromSupabase(id).catch(e => console.warn('Supabase delete error:', e));
+    }
   }
 
   public addCustomer(data: Omit<Customer, 'id' | 'created_at' | 'updated_at'>): Customer {
@@ -711,6 +825,11 @@ class GiftShopStore {
     };
     this.state.customers.push(customer);
     this.save();
+
+    if (isSupabaseConfigured) {
+      syncCustomerToSupabase(customer).catch(e => console.warn('Supabase sync error:', e));
+    }
+
     return customer;
   }
 
@@ -723,12 +842,20 @@ class GiftShopStore {
         updated_at: new Date().toISOString()
       };
       this.save();
+
+      if (isSupabaseConfigured) {
+        syncCustomerToSupabase(this.state.customers[idx]).catch(e => console.warn('Supabase sync error:', e));
+      }
     }
   }
 
   public deleteCustomer(id: string): void {
     this.state.customers = this.state.customers.filter(c => c.id !== id);
     this.save();
+
+    if (isSupabaseConfigured) {
+      deleteCustomerFromSupabase(id).catch(e => console.warn('Supabase delete error:', e));
+    }
   }
 
   public addRecipe(name: string, description: string, selling_price: number, items: { material_id: string; quantity_required: number }[]): GiftRecipe {
@@ -754,6 +881,11 @@ class GiftShopStore {
 
     this.state.recipes.push(recipe);
     this.save();
+
+    if (isSupabaseConfigured) {
+      syncRecipeToSupabase(recipe).catch(e => console.warn('Supabase sync error:', e));
+    }
+
     return recipe;
   }
 
@@ -777,12 +909,20 @@ class GiftShopStore {
         updated_at: new Date().toISOString()
       };
       this.save();
+
+      if (isSupabaseConfigured) {
+        syncRecipeToSupabase(this.state.recipes[idx]).catch(e => console.warn('Supabase sync error:', e));
+      }
     }
   }
 
   public deleteRecipe(id: string): void {
     this.state.recipes = this.state.recipes.filter(r => r.id !== id);
     this.save();
+
+    if (isSupabaseConfigured) {
+      deleteRecipeFromSupabase(id).catch(e => console.warn('Supabase delete error:', e));
+    }
   }
 
   public calculateRequiredMaterials(items: { recipe_id: string; quantity: number }[]): { material_id: string; total_quantity: number; material_name: string; available_quantity: number; shortage: number }[] {

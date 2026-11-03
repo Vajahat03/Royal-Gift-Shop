@@ -1,29 +1,34 @@
 -- ============================================================================
 -- GIFT SHOP INVENTORY MANAGEMENT SYSTEM
--- PostgreSQL + Supabase Database Schema (Single-User Optimized, No Auth Barrier)
+-- PostgreSQL + Supabase Database Schema (Single-User Boutique, Production-Ready)
 -- ============================================================================
 
 -- Extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- 1. Materials Catalog
 CREATE TABLE IF NOT EXISTS materials (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
     name VARCHAR(255) NOT NULL,
-    unit VARCHAR(50) NOT NULL DEFAULT 'Pieces', -- Pieces, Metres, Sets, Grams
+    unit VARCHAR(50) NOT NULL DEFAULT 'Pieces', -- Pieces, Metres, Sets, Grams, Boxes, Rolls
     minimum_stock NUMERIC(12, 2) NOT NULL DEFAULT 5,
     unit_cost NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
     description TEXT,
     category VARCHAR(100) DEFAULT 'General',
+    image_url TEXT,
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
 );
 
+-- Ensure image_url column exists if table was previously created
+ALTER TABLE materials ADD COLUMN IF NOT EXISTS image_url TEXT;
+
 -- 2. Inventory Balances (Physical, Reserved, Available = Physical - Reserved)
 CREATE TABLE IF NOT EXISTS inventory_balances (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    material_id UUID NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    material_id TEXT NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
     physical_quantity NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
     reserved_quantity NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
@@ -35,7 +40,7 @@ CREATE TABLE IF NOT EXISTS inventory_balances (
 
 -- 3. Customers
 CREATE TABLE IF NOT EXISTS customers (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
     name VARCHAR(255) NOT NULL,
     phone VARCHAR(50),
     email VARCHAR(255),
@@ -47,7 +52,7 @@ CREATE TABLE IF NOT EXISTS customers (
 
 -- 4. Gift Recipes
 CREATE TABLE IF NOT EXISTS gift_recipes (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
     name VARCHAR(255) NOT NULL,
     description TEXT,
     selling_price NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
@@ -58,9 +63,9 @@ CREATE TABLE IF NOT EXISTS gift_recipes (
 
 -- 5. Gift Recipe Bill of Materials (Items)
 CREATE TABLE IF NOT EXISTS gift_recipe_items (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    recipe_id UUID NOT NULL REFERENCES gift_recipes(id) ON DELETE CASCADE,
-    material_id UUID NOT NULL REFERENCES materials(id) ON DELETE RESTRICT,
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    recipe_id TEXT NOT NULL REFERENCES gift_recipes(id) ON DELETE CASCADE,
+    material_id TEXT NOT NULL REFERENCES materials(id) ON DELETE RESTRICT,
     quantity_required NUMERIC(12, 2) NOT NULL DEFAULT 1.00,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
     CONSTRAINT uq_recipe_material UNIQUE(recipe_id, material_id),
@@ -69,9 +74,9 @@ CREATE TABLE IF NOT EXISTS gift_recipe_items (
 
 -- 6. Orders
 CREATE TABLE IF NOT EXISTS orders (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
     order_number VARCHAR(50) NOT NULL UNIQUE,
-    customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+    customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
     order_date TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
     expected_delivery_date TIMESTAMPTZ,
     status VARCHAR(30) NOT NULL DEFAULT 'draft', -- draft, confirmed, reserved, in_production, completed, cancelled
@@ -84,9 +89,9 @@ CREATE TABLE IF NOT EXISTS orders (
 
 -- 7. Order Items (Recipes & Quantities)
 CREATE TABLE IF NOT EXISTS order_items (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-    recipe_id UUID NOT NULL REFERENCES gift_recipes(id) ON DELETE RESTRICT,
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    order_id TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    recipe_id TEXT NOT NULL REFERENCES gift_recipes(id) ON DELETE RESTRICT,
     quantity NUMERIC(12, 2) NOT NULL DEFAULT 1.00,
     unit_price NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
     subtotal NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
@@ -95,10 +100,10 @@ CREATE TABLE IF NOT EXISTS order_items (
 
 -- 8. Order Materials (Expected vs Actual Material Consumption)
 CREATE TABLE IF NOT EXISTS order_materials (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-    order_item_id UUID NOT NULL REFERENCES order_items(id) ON DELETE CASCADE,
-    material_id UUID NOT NULL REFERENCES materials(id) ON DELETE RESTRICT,
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    order_id TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    order_item_id TEXT NOT NULL REFERENCES order_items(id) ON DELETE CASCADE,
+    material_id TEXT NOT NULL REFERENCES materials(id) ON DELETE RESTRICT,
     expected_quantity NUMERIC(12, 2) NOT NULL,
     actual_quantity NUMERIC(12, 2) DEFAULT 0.00,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
@@ -106,7 +111,7 @@ CREATE TABLE IF NOT EXISTS order_materials (
 
 -- 9. Restocks
 CREATE TABLE IF NOT EXISTS restocks (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
     supplier_name VARCHAR(255) NOT NULL,
     restock_date TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
     invoice_reference VARCHAR(100),
@@ -117,9 +122,9 @@ CREATE TABLE IF NOT EXISTS restocks (
 
 -- 10. Restock Items
 CREATE TABLE IF NOT EXISTS restock_items (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    restock_id UUID NOT NULL REFERENCES restocks(id) ON DELETE CASCADE,
-    material_id UUID NOT NULL REFERENCES materials(id) ON DELETE RESTRICT,
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    restock_id TEXT NOT NULL REFERENCES restocks(id) ON DELETE CASCADE,
+    material_id TEXT NOT NULL REFERENCES materials(id) ON DELETE RESTRICT,
     quantity NUMERIC(12, 2) NOT NULL,
     unit_cost NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
     subtotal NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
@@ -128,18 +133,30 @@ CREATE TABLE IF NOT EXISTS restock_items (
 
 -- 11. Immutable Stock Movement Ledger
 CREATE TABLE IF NOT EXISTS stock_movements (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    material_id UUID NOT NULL REFERENCES materials(id) ON DELETE RESTRICT,
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    material_id TEXT NOT NULL REFERENCES materials(id) ON DELETE RESTRICT,
     movement_type VARCHAR(50) NOT NULL, -- initial_stock, restock, reservation, reservation_release, production_consumption, material_return, manual_adjustment
     quantity NUMERIC(12, 2) NOT NULL,
     previous_quantity NUMERIC(12, 2) NOT NULL,
     new_quantity NUMERIC(12, 2) NOT NULL,
-    order_id UUID REFERENCES orders(id) ON DELETE SET NULL,
-    restock_id UUID REFERENCES restocks(id) ON DELETE SET NULL,
+    order_id TEXT REFERENCES orders(id) ON DELETE SET NULL,
+    restock_id TEXT REFERENCES restocks(id) ON DELETE SET NULL,
     reference VARCHAR(255),
     notes TEXT,
     created_by VARCHAR(100) DEFAULT 'Shop Owner',
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
+);
+
+-- 12. Shop Settings
+CREATE TABLE IF NOT EXISTS shop_settings (
+    id VARCHAR(50) PRIMARY KEY DEFAULT 'default',
+    store_name VARCHAR(255) NOT NULL DEFAULT 'Petite Maison Gift Boutique',
+    currency_symbol VARCHAR(5) NOT NULL DEFAULT '$',
+    tax_rate NUMERIC(5, 2) NOT NULL DEFAULT 8.5,
+    address TEXT DEFAULT '',
+    phone VARCHAR(50) DEFAULT '',
+    email VARCHAR(255) DEFAULT '',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
 );
 
 -- Indexes for lightning fast queries
@@ -152,17 +169,79 @@ CREATE INDEX IF NOT EXISTS idx_stock_movements_type ON stock_movements(movement_
 CREATE INDEX IF NOT EXISTS idx_stock_movements_created ON stock_movements(created_at DESC);
 
 -- ============================================================================
+-- ROW LEVEL SECURITY (RLS) POLICIES
+-- ============================================================================
+-- Enable RLS
+ALTER TABLE materials ENABLE ROW LEVEL SECURITY;
+ALTER TABLE inventory_balances ENABLE ROW LEVEL SECURITY;
+ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE gift_recipes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE gift_recipe_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE order_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE order_materials ENABLE ROW LEVEL SECURITY;
+ALTER TABLE restocks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE restock_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE stock_movements ENABLE ROW LEVEL SECURITY;
+ALTER TABLE shop_settings ENABLE ROW LEVEL SECURITY;
+
+-- Permissive policies for boutique operations (anon and authenticated users)
+DO $$
+BEGIN
+    DROP POLICY IF EXISTS "Allow full access on materials" ON materials;
+    CREATE POLICY "Allow full access on materials" ON materials FOR ALL USING (true) WITH CHECK (true);
+
+    DROP POLICY IF EXISTS "Allow full access on inventory_balances" ON inventory_balances;
+    CREATE POLICY "Allow full access on inventory_balances" ON inventory_balances FOR ALL USING (true) WITH CHECK (true);
+
+    DROP POLICY IF EXISTS "Allow full access on customers" ON customers;
+    CREATE POLICY "Allow full access on customers" ON customers FOR ALL USING (true) WITH CHECK (true);
+
+    DROP POLICY IF EXISTS "Allow full access on gift_recipes" ON gift_recipes;
+    CREATE POLICY "Allow full access on gift_recipes" ON gift_recipes FOR ALL USING (true) WITH CHECK (true);
+
+    DROP POLICY IF EXISTS "Allow full access on gift_recipe_items" ON gift_recipe_items;
+    CREATE POLICY "Allow full access on gift_recipe_items" ON gift_recipe_items FOR ALL USING (true) WITH CHECK (true);
+
+    DROP POLICY IF EXISTS "Allow full access on orders" ON orders;
+    CREATE POLICY "Allow full access on orders" ON orders FOR ALL USING (true) WITH CHECK (true);
+
+    DROP POLICY IF EXISTS "Allow full access on order_items" ON order_items;
+    CREATE POLICY "Allow full access on order_items" ON order_items FOR ALL USING (true) WITH CHECK (true);
+
+    DROP POLICY IF EXISTS "Allow full access on order_materials" ON order_materials;
+    CREATE POLICY "Allow full access on order_materials" ON order_materials FOR ALL USING (true) WITH CHECK (true);
+
+    DROP POLICY IF EXISTS "Allow full access on restocks" ON restocks;
+    CREATE POLICY "Allow full access on restocks" ON restocks FOR ALL USING (true) WITH CHECK (true);
+
+    DROP POLICY IF EXISTS "Allow full access on restock_items" ON restock_items;
+    CREATE POLICY "Allow full access on restock_items" ON restock_items FOR ALL USING (true) WITH CHECK (true);
+
+    DROP POLICY IF EXISTS "Allow full access on stock_movements" ON stock_movements;
+    CREATE POLICY "Allow full access on stock_movements" ON stock_movements FOR ALL USING (true) WITH CHECK (true);
+
+    DROP POLICY IF EXISTS "Allow full access on shop_settings" ON shop_settings;
+    CREATE POLICY "Allow full access on shop_settings" ON shop_settings FOR ALL USING (true) WITH CHECK (true);
+END $$;
+
+-- Schema Grants for anon and authenticated API clients
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
+
+-- ============================================================================
 -- ATOMIC STORED PROCEDURES (RPCs)
 -- ============================================================================
 
 -- RPC 1: Reserve Order Stock (on order confirmation)
-CREATE OR REPLACE FUNCTION reserve_order_stock(p_order_id UUID)
+CREATE OR REPLACE FUNCTION reserve_order_stock(p_order_id TEXT)
 RETURNS JSONB
 LANGUAGE plpgsql
 AS $$
 DECLARE
     v_order RECORD;
-    v_item RECORD;
     v_mat RECORD;
     v_avail NUMERIC;
     v_prev_qty NUMERIC;
@@ -231,7 +310,7 @@ END;
 $$;
 
 -- RPC 2: Release Order Reservation (on cancel)
-CREATE OR REPLACE FUNCTION release_order_reservation(p_order_id UUID)
+CREATE OR REPLACE FUNCTION release_order_reservation(p_order_id TEXT)
 RETURNS JSONB
 LANGUAGE plpgsql
 AS $$
@@ -286,7 +365,7 @@ END;
 $$;
 
 -- RPC 3: Complete Order & Deduct Stock Atomically
-CREATE OR REPLACE FUNCTION complete_order(p_order_id UUID, p_actual_consumptions JSONB DEFAULT NULL)
+CREATE OR REPLACE FUNCTION complete_order(p_order_id TEXT, p_actual_consumptions JSONB DEFAULT NULL)
 RETURNS JSONB
 LANGUAGE plpgsql
 AS $$
@@ -373,10 +452,10 @@ RETURNS JSONB
 LANGUAGE plpgsql
 AS $$
 DECLARE
-    v_restock_id UUID;
+    v_restock_id TEXT;
     v_item RECORD;
     v_total_cost NUMERIC := 0;
-    v_mat_id UUID;
+    v_mat_id TEXT;
     v_qty NUMERIC;
     v_cost NUMERIC;
     v_subtotal NUMERIC;
@@ -387,7 +466,7 @@ BEGIN
     VALUES (p_supplier_name, p_invoice_ref, p_notes)
     RETURNING id INTO v_restock_id;
 
-    FOR v_item IN SELECT * FROM jsonb_to_recordset(p_items) AS x(material_id UUID, quantity NUMERIC, unit_cost NUMERIC)
+    FOR v_item IN SELECT * FROM jsonb_to_recordset(p_items) AS x(material_id TEXT, quantity NUMERIC, unit_cost NUMERIC)
     LOOP
         v_mat_id := v_item.material_id;
         v_qty := v_item.quantity;
@@ -440,7 +519,7 @@ $$;
 
 -- RPC 5: Manual Stock Adjustment
 CREATE OR REPLACE FUNCTION adjust_inventory(
-    p_material_id UUID,
+    p_material_id TEXT,
     p_new_physical NUMERIC,
     p_reason TEXT
 )
